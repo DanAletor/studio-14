@@ -1,0 +1,87 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  DOKKU_HOST: studio14.danaletordaniela.com
+  DOKKU_APP: wordpress
+
+jobs:
+  build:
+    name: Build Docker image (sanity check)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build image
+        run: |
+          docker build \
+            --tag ${{ env.DOKKU_HOST }}/${{ env.DOKKU_APP }}:${{ github.sha }} \
+            .
+
+  deploy:
+    name: Deploy to Dokku
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Start ssh-agent & add key
+        uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: ${{ secrets.DOKKU_SSH_KEY }}
+
+      - name: Add Dokku server to known_hosts
+        run: ssh-keyscan -H ${{ env.DOKKU_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Add Dokku git remote
+        run: git remote add dokku dokku@${{ env.DOKKU_HOST }}:${{ env.DOKKU_APP }}
+
+      - name: Push to Dokku (main→master)
+        run: git push dokku main:master --force
+
+      - name: Tag release on success
+        run: |
+          git tag -f deployed-${{ github.run_number }}
+          git push origin deployed-${{ github.run_number }} --force
+
+  rollback:
+    name: Rollback on deploy failure
+    needs: deploy
+    if: ${{ failure() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Start ssh-agent & add key
+        uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: ${{ secrets.DOKKU_SSH_KEY }}
+
+      - name: Add Dokku server to known_hosts
+        run: ssh-keyscan -H ${{ env.DOKKU_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Find previous successful deployment tag
+        id: find_tag
+        run: |
+          PREV_TAG=$(git tag --sort=-creatordate | grep deployed- | sed -n 2p)
+          echo "Previous tag: $PREV_TAG"
+          echo "::set-output name=prev_tag::$PREV_TAG"
+
+      - name: Rollback to previous tag
+        if: steps.find_tag.outputs.prev_tag != ''
+        run: |
+          echo "Rolling back to tag ${{ steps.find_tag.outputs.prev_tag }}"
+          git push dokku ${{ steps.find_tag.outputs.prev_tag }}:master --force
+
+      - name: Notify rollback
+        run: echo "⚠️ Deployment failed. Rolled back to previous successful tag."
