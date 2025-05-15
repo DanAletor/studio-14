@@ -11,18 +11,18 @@ env:
 
 jobs:
   build:
-    name: Checkout
+    name: Build (checkout)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-            .
-
   deploy:
     name: Deploy to Dokku
     needs: build
     runs-on: ubuntu-latest
+    outputs:
+      deployed_tag: ${{ steps.tag_release.outputs.tag_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -33,21 +33,28 @@ jobs:
           ssh-private-key: ${{ secrets.DOKKU_SSH_KEY }}
 
       - name: Add Dokku server to known_hosts
-        run: ssh-keyscan -H ${{ env.DOKKU_HOST }} >> ~/.ssh/known_hosts
+        run: |
+          ssh-keyscan -H ${{ env.DOKKU_HOST }} >> ~/.ssh/known_hosts
 
       - name: Add Dokku git remote
-        run: git remote add dokku dokku@${{ env.DOKKU_HOST }}:${{ env.DOKKU_APP }}
+        run: |
+          git remote add dokku dokku@${{ env.DOKKU_HOST }}:${{ env.DOKKU_APP }}
 
       - name: Push to Dokku (main→master)
-        run: git push dokku main:master --force
+        run: |
+          git push dokku main:master --force
 
       - name: Tag release on success
+        id: tag_release
         run: |
-          git tag -f deployed-${{ github.run_number }}
-          git push origin deployed-${{ github.run_number }} --force
+          TAG_NAME="deployed-${{ github.run_number }}"
+          git tag -f "$TAG_NAME"
+          git push origin "$TAG_NAME" --force
+          # export as job output
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
 
   rollback:
-    name: Rollback on deploy failure
+    name: Rollback on Deploy Failure
     needs: deploy
     if: ${{ failure() }}
     runs-on: ubuntu-latest
@@ -61,20 +68,27 @@ jobs:
           ssh-private-key: ${{ secrets.DOKKU_SSH_KEY }}
 
       - name: Add Dokku server to known_hosts
-        run: ssh-keyscan -H ${{ env.DOKKU_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Find previous successful deployment tag
-        id: find_tag
         run: |
-          PREV_TAG=$(git tag --sort=-creatordate | grep deployed- | sed -n 2p)
-          echo "Previous tag: $PREV_TAG"
-          echo "::set-output name=prev_tag::$PREV_TAG"
+          ssh-keyscan -H ${{ env.DOKKU_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Rollback to previous tag
-        if: steps.find_tag.outputs.prev_tag != ''
+      - name: Determine rollback ref
+        id: choose_ref
         run: |
-          echo "Rolling back to tag ${{ steps.find_tag.outputs.prev_tag }}"
-          git push dokku ${{ steps.find_tag.outputs.prev_tag }}:master --force
+          # if there was a deployed_tag from the deploy job, use it;
+          # otherwise fall back to HEAD~1
+          if [ -n "${{ needs.deploy.outputs.deployed_tag }}" ]; then
+            echo "Using previous tag ${{ needs.deploy.outputs.deployed_tag }}"
+            echo "ref=${{ needs.deploy.outputs.deployed_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "No prior deployed tag—falling back to HEAD~1"
+            echo "ref=HEAD~1" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Rollback to determined ref
+        run: |
+          echo "Rolling back Dokku to ${{ steps.choose_ref.outputs.ref }}"
+          git push dokku "${{ steps.choose_ref.outputs.ref }}":master --force
 
       - name: Notify rollback
-        run: echo "⚠️ Deployment failed. Rolled back to previous successful tag."
+        run: |
+          echo "⚠️ Deployment failed — rolled back to ${{ steps.choose_ref.outputs.ref }}"
