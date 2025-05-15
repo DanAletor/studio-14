@@ -1,0 +1,2 @@
+--link dokku.mysql.mysql:dokku-mysql-mysql
+--restart=on-failure:10

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -e
+set -o pipefail
+
+cat | DOKKU_ROOT="/home/dokku" dokku git-hook wordpress

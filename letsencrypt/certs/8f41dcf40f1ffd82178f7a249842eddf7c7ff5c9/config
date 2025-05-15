@@ -1,0 +1,1 @@
+--http --http.webroot /webroot --pem --accept-tos --cert.timeout 2592000 --path /certs --server https://acme-v02.api.letsencrypt.org/directory --email danaletordaniela@gmail.com   --domains wordpress.studio14.danaletordaniela.com
