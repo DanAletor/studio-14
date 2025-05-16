@@ -1,4 +1,4 @@
-# studio-24
+# studio-14
 
 ## 1. Environment Setup
 
