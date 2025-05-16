@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-
 env:
   DOKKU_HOST: studio14.danaletordaniela.com
   DOKKU_APP: wordpress
