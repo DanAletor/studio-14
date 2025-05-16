@@ -19,45 +19,31 @@ jobs:
 
   deploy:
     name: Deploy to Dokku
-    needs: build
     runs-on: ubuntu-latest
-    outputs:
-      deployed_tag: ${{ steps.tag_release.outputs.tag_name }}
+    needs: build
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v3
-
-      - name: Start ssh-agent & add key
-        uses: webfactory/ssh-agent@v0.5.4
         with:
-          ssh-private-key: ${{ secrets.DOKKU_SSH_KEY }}
+          fetch-depth: 0
 
-      - name: Add Dokku server to known_hosts
+      - name: Set up SSH
         run: |
-          ssh-keyscan -H ${{ env.DOKKU_HOST }} >> ~/.ssh/known_hosts
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DOKKU_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan ${{ env.DOKKU_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Add Dokku git remote
+      - name: Push to Dokku
         run: |
-          git remote add dokku dokku@${{ env.DOKKU_HOST }}:${{ env.DOKKU_APP }}
-
-      - name: Push to Dokku (main→master)
-        run: |
-          git push dokku main:master --force
-
-      - name: Tag release on success
-        id: tag_release
-        run: |
-          TAG_NAME="deployed-${{ github.run_number }}"
-          git tag -f "$TAG_NAME"
-          git push origin "$TAG_NAME" --force
-          # export as job output
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          git remote add dokku dokku@${{ env.DOKKU_HOST }}:${{ env.DOKKU_APP }} || true
+          git push dokku HEAD:main
 
   rollback:
     name: Rollback on Deploy Failure
+    runs-on: ubuntu-latest
     needs: deploy
     if: ${{ failure() }}
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -74,8 +60,7 @@ jobs:
       - name: Determine rollback ref
         id: choose_ref
         run: |
-          # if there was a deployed_tag from the deploy job, use it;
-          # otherwise fall back to HEAD~1
+          # Use previous deployed tag if available, otherwise fallback to HEAD~1
           if [ -n "${{ needs.deploy.outputs.deployed_tag }}" ]; then
             echo "Using previous tag ${{ needs.deploy.outputs.deployed_tag }}"
             echo "ref=${{ needs.deploy.outputs.deployed_tag }}" >> $GITHUB_OUTPUT
@@ -87,8 +72,5 @@ jobs:
       - name: Rollback to determined ref
         run: |
           echo "Rolling back Dokku to ${{ steps.choose_ref.outputs.ref }}"
-          git push dokku "${{ steps.choose_ref.outputs.ref }}":master --force
-
-      - name: Notify rollback
-        run: |
-          echo "⚠️ Deployment failed — rolled back to ${{ steps.choose_ref.outputs.ref }}"
+          git remote add dokku dokku@${{ env.DOKKU_HOST }}:${{ env.DOKKU_APP }} || true
+          git push dokku "${{ steps.choose_ref.outputs.ref }}":main --force
