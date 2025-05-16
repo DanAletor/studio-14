@@ -7,7 +7,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repo
@@ -15,11 +15,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Disable safe.directory checks
-        run: git config --global --add safe.directory '*'
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DOKKU_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan studio14.danaletordaniela.com >> ~/.ssh/known_hosts
 
       - name: Push to Dokku
-        uses: dokku/github-action@master
-        with:
-          git_remote_url: 'ssh://dokku@studio14.danaletordaniela.com/wordpress'  
-          ssh_private_key: ${{ secrets.DOKKU_SSH_KEY }}
+        run: |
+          git remote add dokku dokku@studio14.danaletordaniela.com:wordpress || true
+          git push dokku HEAD:main
