@@ -412,6 +412,106 @@ docker restart prometheus
   * Node Exporter: [http://15.236.140.231:9100/metrics](http://15.236.140.231:9100/metrics)
 
 
+## Security and Backups
+
+### Automated Daily Backup Script
+
+A `backup.sh` script was created to automate daily backups of both the WordPress application data and its associated MySQL database. The script performs the following:
+
+#### Breakdown of the Script:
+
+1. **Configuration**
+
+   * Defines variables for application name, database plugin, backup directory, and S3 bucket path.
+
+2. **Creates Local Backup Directory**
+
+   * Ensures `/opt/backups/wordpress` exists for storing backups locally.
+
+3. **Backs Up WordPress Files**
+
+   * Archives and compresses the WordPress storage directory (`/var/lib/dokku/data/storage/wordpress`) into a timestamped `.tar.gz` file.
+
+4. **Exports the MySQL Database**
+
+   * Uses `dokku mysql:export` to dump the database, piping it through `gzip` for compression.
+
+5. **Uploads to AWS S3**
+
+   * Uploads both the app files and database dump to the specified S3 bucket (`s3://webserverstudio/wordpress`).
+
+6. **Cleans Up Old Backups**
+
+   * Deletes any local backup files older than 7 days.
+
+7. **Logs Backup Results**
+
+   * Logs the backup operation with timestamps to `/var/log/wordpress_backup.log`.
+
+> Script path: `backup.sh`
+> Schedule: Intended to be run via `cron` once per day.
+
+#### Crontab Entry (for daily execution at 2 AM):
+
+```bash
+0 2 * * * /bin/bash /path/to/backup.sh
+```
+
+---
+
+### Restore Instructions
+
+To restore from a backup:
+
+1. **Download backup files from S3**:
+
+   ```bash
+   aws s3 cp s3://webserverstudio/wordpress/files/wordpress_files_<timestamp>.tar.gz /tmp/
+   aws s3 cp s3://webserverstudio/wordpress/database/wordpress_db_<timestamp>.sql.gz /tmp/
+   ```
+
+2. **Restore WordPress Files**:
+
+   ```bash
+   tar -xzf /tmp/wordpress_files_<timestamp>.tar.gz -C /var/lib/dokku/data/storage/wordpress/
+   ```
+
+3. **Restore Database**:
+
+   ```bash
+   gunzip < /tmp/wordpress_db_<timestamp>.sql.gz | dokku mysql:import mysql
+   ```
+
+4. **Restart the application**:
+
+   ```bash
+   dokku ps:restart wordpress
+   ```
+
+---
+
+### SSH Access Restrictions
+
+The server has been hardened to allow only SSH key-based access:
+
+* Password-based logins have been disabled by modifying `/etc/ssh/sshd_config`:
+
+  ```ini
+  PasswordAuthentication no
+  PermitRootLogin no
+  ```
+
+* SSH access is restricted to known key holders. The SSH daemon was restarted using:
+
+  ```bash
+  sudo systemctl restart ssh
+  ```
+
+These measures prevent brute-force and unauthorized access.
+
+
+
+
 
 
 
