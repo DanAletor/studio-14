@@ -280,6 +280,9 @@ jobs:
 * **Resilience**: The pipeline includes a simple rollback mechanism that ensures availability if a bad deployment is pushed.
 
 
+
+
+
 ## 4. Monitoring and Alerts
 
 Prometheus and Grafana were installed using standalone Docker containers to monitor the server where the WordPress application is hosted. The setup collects and visualizes metrics such as:
@@ -412,7 +415,11 @@ docker restart prometheus
   * Node Exporter: [http://15.236.140.231:9100/metrics](http://15.236.140.231:9100/metrics)
 
 
-## Security and Backups
+
+
+
+
+## 5.Security and Backups
 
 ### Automated Daily Backup Script
 
